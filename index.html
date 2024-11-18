@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .input-section {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .network-container {
+            position: relative;
+            height: 500px;
+            margin: 20px 0;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+
+        .process {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background-color: #4CAF50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            z-index: 2;
+        }
+
+        .process.failed {
+            background-color: #f44336;
+        }
+
+        .process.coordinator {
+            background-color: #2196F3;
+            box-shadow: 0 0 10px rgba(33, 150, 243, 0.5);
+        }
+
+        .arrow {
+            position: absolute;
+            height: 3px;
+            background-color: #333;
+            transform-origin: left center;
+            pointer-events: none;
+        }
+
+        .arrow::after {
+            content: '';
+            position: absolute;
+            right: -8px;
+            top: -4px;
+            width: 0;
+            height: 0;
+            border-left: 12px solid #333;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+        }
+
+        .arrow-label {
+            position: absolute;
+            background: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+            transform: translate(-50%, -50%);
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            background-color: #2196F3;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #1976D2;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .node-inputs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .current-step {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #e3f2fd;
+            border-radius: 4px;
+            text-align: center;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Simulador del Algoritmo Bully</h1>
+        
+        <div class="input-section">
+            <div>
+                <label>Número de nodos:</label>
+                <input type="number" id="nodeCount" min="3" max="10" value="5">
+                <button onclick="generateNodeInputs()">Generar campos</button>
+            </div>
+            <div class="node-inputs" id="nodeInputs"></div>
+            <button onclick="createNodes()">Crear Nodos</button>
+        </div>
+
+        <div class="controls">
+            <button onclick="initializeSystem()">Inicializar Sistema</button>
+            <button onclick="failProcess()">Fallar Proceso</button>
+            <button onclick="nextStep()">Siguiente Fase</button>
+        </div>
+
+        <div class="current-step" id="currentStep">
+            Paso: Esperando inicialización
+        </div>
+
+        <div class="network-container" id="networkContainer"></div>
+    </div>
+
+    <script>
+        let nodes = [];
+        let currentStep = 0;
+        let failedNode = null;
+        let arrows = [];
+
+        function generateNodeInputs() {
+            const count = parseInt(document.getElementById('nodeCount').value) || 5;
+            const container = document.getElementById('nodeInputs');
+            container.innerHTML = '';
+            
+            for (let i = 0; i < count; i++) {
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.placeholder = `ID nodo ${i + 1}`;
+                input.className = 'node-value';
+                input.value = (i + 1) * 10; // Valores por defecto
+                container.appendChild(input);
+            }
+        }
+
+        function createNodes() {
+            const inputs = document.getElementsByClassName('node-value');
+            nodes = Array.from(inputs).map((input, index) => ({
+                id: parseInt(input.value),
+                active: true,
+                isCoordinator: false,
+                x: 0,
+                y: 0
+            }));
+
+            nodes.sort((a, b) => a.id - b.id);
+            positionNodes();
+            currentStep = 0;
+            clearArrows();
+            updateUI();
+        }
+
+        function positionNodes() {
+            const container = document.getElementById('networkContainer');
+            const centerX = container.offsetWidth / 2;
+            const centerY = container.offsetHeight / 2;
+            const radius = Math.min(centerX, centerY) - 50;
+
+            nodes.forEach((node, index) => {
+                const angle = (index * 2 * Math.PI) / nodes.length - Math.PI / 2;
+                node.x = centerX + radius * Math.cos(angle);
+                node.y = centerY + radius * Math.sin(angle);
+            });
+        }
+
+        function createArrow(fromNode, toNode, label) {
+            const dx = toNode.x - fromNode.x;
+            const dy = toNode.y - fromNode.y;
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            
+            // Ajustar el punto de inicio y fin para que las flechas no se superpongan con los nodos
+            const nodeRadius = 30; // Radio del nodo
+            const startX = fromNode.x + nodeRadius * Math.cos(angle * Math.PI / 180);
+            const startY = fromNode.y + nodeRadius * Math.sin(angle * Math.PI / 180);
+            const adjustedLength = length - 2 * nodeRadius;
+
+            const arrow = document.createElement('div');
+            arrow.className = 'arrow';
+            arrow.style.width = `${adjustedLength}px`;
+            arrow.style.left = `${startX}px`;
+            arrow.style.top = `${startY}px`;
+            arrow.style.transform = `rotate(${angle}deg)`;
+
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'arrow-label';
+            labelDiv.textContent = label;
+            labelDiv.style.left = `${fromNode.x + dx/2}px`;
+            labelDiv.style.top = `${fromNode.y + dy/2}px`;
+
+            document.getElementById('networkContainer').appendChild(arrow);
+            document.getElementById('networkContainer').appendChild(labelDiv);
+            arrows.push(arrow, labelDiv);
+        }
+
+        function clearArrows() {
+            arrows.forEach(arrow => arrow.remove());
+            arrows = [];
+        }
+
+        function initializeSystem() {
+            nodes.forEach(node => {
+                node.active = true;
+                node.isCoordinator = false;
+            });
+            currentStep = 0;
+            failedNode = null;
+            clearArrows();
+            updateUI();
+            document.getElementById('currentStep').textContent = 'Paso: Sistema inicializado';
+        }
+
+        function failProcess() {
+            if (currentStep === 0) {
+                const maxNode = nodes.reduce((max, node) => node.id > max.id ? node : max);
+                maxNode.active = false;
+                maxNode.isCoordinator = false;
+                failedNode = maxNode;
+                currentStep = 1;
+                clearArrows();
+                updateUI();
+                document.getElementById('currentStep').textContent = 'Paso 1: Nodo mayor ha fallado';
+            }
+        }
+
+        function getActiveNodesSorted() {
+            return nodes.filter(n => n.active).sort((a, b) => b.id - a.id);
+        }
+
+        function nextStep() {
+            clearArrows();
+            
+            switch(currentStep) {
+                case 1:
+                    const activeNodes = getActiveNodesSorted();
+                    if (activeNodes.length >= 3) {
+                        const thirdHighest = activeNodes[2];
+                        const higherNodes = activeNodes.filter(n => n.id > thirdHighest.id);
+                        higherNodes.forEach(node => {
+                            createArrow(thirdHighest, node, "ELECTION");
+                        });
+                        currentStep = 2;
+                        document.getElementById('currentStep').textContent = 
+                            'Paso 2: Tercer nodo mayor manda ELECTION';
+                    }
+                    break;
+                    
+                case 2:
+                    const activeNodes2 = getActiveNodesSorted();
+                    const thirdHighest = activeNodes2[2];
+                    const higherNodes = activeNodes2.filter(n => n.id > thirdHighest.id);
+                    higherNodes.forEach(node => {
+                        createArrow(node, thirdHighest, "OK");
+                    });
+                    currentStep = 3;
+                    document.getElementById('currentStep').textContent = 
+                        'Paso 3: Nodos mayores responden OK';
+                    break;
+                    
+                case 3:
+                    const activeNodes3 = getActiveNodesSorted();
+                    const secondHighest = activeNodes3[1];
+                    const highest = activeNodes3[0];
+                    createArrow(secondHighest, highest, "ELECTION");
+                    currentStep = 4;
+                    document.getElementById('currentStep').textContent = 
+                        'Paso 4: Segundo nodo mayor manda ELECTION';
+                    break;
+                    
+                case 4:
+                    const activeNodes4 = getActiveNodesSorted();
+                    const secondHighest2 = activeNodes4[1];
+                    const highest2 = activeNodes4[0];
+                    createArrow(highest2, secondHighest2, "OK");
+                    currentStep = 5;
+                    document.getElementById('currentStep').textContent = 
+                        'Paso 5: Nodo mayor responde OK';
+                    break;
+                    
+                case 5:
+                    const activeNodes5 = getActiveNodesSorted();
+                    const newCoordinator = activeNodes5[0];
+                    newCoordinator.isCoordinator = true;
+                    activeNodes5.forEach(node => {
+                        if (node.id !== newCoordinator.id) {
+                            createArrow(newCoordinator, node, "COORDINATOR");
+                        }
+                    });
+                    currentStep = 6;
+                    document.getElementById('currentStep').textContent = 
+                        'Paso 6: Nuevo coordinador notifica a todos';
+                    break;
+            }
+            updateUI();
+        }
+
+        function updateUI() {
+            const container = document.getElementById('networkContainer');
+            // Mantener las flechas existentes
+            const arrowElements = Array.from(container.querySelectorAll('.arrow, .arrow-label'));
+            container.innerHTML = '';
+            arrowElements.forEach(el => container.appendChild(el));
+            
+            nodes.forEach(node => {
+                const nodeElement = document.createElement('div');
+                nodeElement.className = `process ${node.active ? '' : 'failed'} ${node.isCoordinator ? 'coordinator' : ''}`;
+                nodeElement.style.left = `${node.x - 30}px`;
+                nodeElement.style.top = `${node.y - 30}px`;
+                nodeElement.textContent = node.id;
+                container.appendChild(nodeElement);
+            });
+        }
+
+        // Inicializar con algunos valores por defecto
+        generateNodeInputs();
+    </script>
+</body>
+</html>
